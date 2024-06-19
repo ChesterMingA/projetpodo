@@ -1,0 +1,171 @@
+  #include <Wire.h>
+  #include <Adafruit_Sensor.h>
+  #include <Adafruit_ADXL345_U.h>
+  #include <rgb_lcd.h> // Inclure la bibliothèque pour l'écran LCD RVB
+  #include <SD.h>
+  #include <SPI.h>
+
+
+  rgb_lcd lcd; // Déclaration de l'objet LCD
+
+
+  Adafruit_ADXL345_Unified accel = Adafruit_ADXL345_Unified();
+
+
+  const float strideLength = 1; // Longueur d'un pas en mètres
+  const float caloriesPerStep = 0.05; // Calories dépensées par pas
+  int stepCount = 0; //initialisation à zéro du nombre de pas
+  float avgSpeed = 0; //initialisation à zéro de la vitesse
+  int distance = 0; //initialisation à zéro de la distance
+  float deltaTime = 0; //initialisation à zéro du DELTA T
+  float maxSpeed = 0; //initialisation à zéro de la Vmax
+  float caloriesBurned = 0; //initialisation à zéro des calories brulés
+  float offsetZ = 1.15;
+  unsigned long lastStepTime = 0;
+  float lastAcceleration = 0; //initialisation à zéro de la dernière accélération
+  float lastDistance = 0; //initialisation à zéro de la dernière distance
+  unsigned long lastUpdateTime = 0; //initialisation à zéro du dernier temps mesuré
+  unsigned long CurrentTime = 0;
+
+
+  // Définit le pin pour le CS
+const int chipSelect = 10;
+  // Déclaration de la variable pour le fichier sur la carte SD
+File dataFile;
+
+
+
+
+  void setup() {
+    Serial.begin(9600);
+
+
+    if (!accel.begin()) {
+  Serial.println("Could not find a valid ADXL345 sensor, check wiring!");
+  while (1);
+    }
+  // Ouverture du fichier sur la carte SD
+  dataFile = SD.open("data.txt", FILE_WRITE);
+  if (dataFile) {
+  Serial.println("Fichier 'data.txt' ouvert avec succès.");
+  // Écriture de l'en-tête des données dans le fichier
+  dataFile.print("Nombre de pas, Distance parcourue (m), Vitesse moyenne (km/h), Vitesse maximale (km/h), Calories brûlées");
+  dataFile.close(); // Fermeture du fichier après écriture de l'en-tête
+  } else {
+  Serial.println("Erreur lors de l'ouverture du fichier 'data.txt' sur la carte SD");
+  }
+
+
+    accel.setRange(ADXL345_RANGE_16_G);
+    accel.setDataRate(ADXL345_DATARATE_200_HZ); // Set data rate to 50 Hz
+    Serial.println("ADXL345 initialized and ready to read accelerometer data.");
+
+
+    // Initialiser l'écran LCD
+    lcd.begin(16, 2);
+     // Vérifier si la carte SD est présente et peut être initialisée
+  if (!SD.begin(chipSelect)) {
+    Serial.println("Erreur d'initialisation de la carte SD!");
+    return;
+  }
+  Serial.println("Carte SD initialisée."); // carte SD initialisé
+ }
+ 
+ 
+  void loop() {
+   
+    sensors_event_t event;
+    accel.getEvent(&event);
+
+
+    // Soustraire les valeurs d'offset pour centrer les lectures à zéro
+    float z = event.acceleration.z + offsetZ;
+
+
+    // Détection des pas basée sur le changement d'accélération
+    unsigned long currentTime = millis();
+    if ((( z > 1.20 )|| (z < -1.20)) && currentTime - lastStepTime > 400) { // Seuil réduit pour détecter un pas plus facilement
+  stepCount++;
+  lastStepTime = currentTime;
+    }
+  ;
+ 
+    // Calcul delta temps
+    float deltaTime = (currentTime - lastUpdateTime) / 1000.0; // en secondes
+    lastUpdateTime = currentTime;
+     
+    // Conversion des pas en distance (env 20 cm par pas)
+    ;distance = stepCount * strideLength;
+
+
+    // Estimation des calories brûlées
+    caloriesBurned = stepCount * caloriesPerStep;
+
+
+    // Vitesse moyenne en km/h
+    float elapsedTime = (currentTime / 1000.0);
+    avgSpeed = (distance / elapsedTime)*3.6 ;
+    if (avgSpeed > maxSpeed) {
+  maxSpeed = avgSpeed;
+    }
+
+
+    // Affichage des données calculées sur le moniteur série
+
+
+    Serial.print("z: ");
+    Serial.println(z);
+    Serial.print("nombre de pas : ");
+    Serial.println(stepCount);
+    Serial.print("distance (m): ");
+    Serial.println(distance);
+    Serial.print("Vmoy(Km/s) : ");
+    Serial.println(avgSpeed);
+    Serial.print("Vmax(Km/s) : ");
+    Serial.println(maxSpeed);
+    Serial.print("\n");
+
+
+    // Écriture des données dans le fichier sur la carte SD
+  dataFile = SD.open("data.txt", FILE_WRITE);
+  if (dataFile) {
+  dataFile.print(stepCount);
+  dataFile.print(", ");
+  dataFile.print(distance);
+  dataFile.print(", ");
+  dataFile.print(avgSpeed);
+  dataFile.print(", ");
+  dataFile.print(maxSpeed);
+  dataFile.print(", ");
+  dataFile.println(caloriesBurned);
+  dataFile.close(); // Fermeture du fichier après écriture des données
+  } else {
+  Serial.println("Erreur lors de l'ouverture du fichier 'data.txt' sur la carte SD");
+  }
+
+
+  delay(50); // Ajout d'un délai pour ne pas saturer le moniteur série
+
+
+
+
+ 
+    // Afficher les données sur l'écran LCD
+ lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Pas:");
+    lcd.print(stepCount);
+    lcd.print(" Vmoy:");
+    lcd.print(avgSpeed);
+    lcd.setCursor(0, 1);
+    lcd.print("km/h");
+    lcd.setCursor(0, 1);
+    lcd.print("Distance(m):");
+    lcd.print(distance);
+  }
+
+
+  void calibrateAccelerometer() {
+    sensors_event_t event;
+    accel.getEvent(&event);
+  }
